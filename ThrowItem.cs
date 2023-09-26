@@ -83,6 +83,15 @@ public class ThrowItem : MonoBehaviour
     {
         Vector2 swipeDir = endSwipePos - startSwipePos;
         float throwForce = Mathf.Clamp(swipeDir.magnitude, 0, maxThrowForce);
-        rb.AddForce(new Vector3(0, swipeDir.normalized.y, 1) * throwForce, ForceMode.Impulse);
+
+        // Convert 2D swipe direction into 3D force direction
+        Vector3 forceDirection = new Vector3(swipeDir.x, swipeDir.y, 0).normalized;
+
+        // Rotate this force direction from screen space into world space.
+        forceDirection = Camera.main.transform.TransformDirection(forceDirection);
+        forceDirection.z = 1;  // Ensures forward motion along the z-axis.
+
+        rb.AddForce(forceDirection * throwForce, ForceMode.Impulse);
     }
+
 }
