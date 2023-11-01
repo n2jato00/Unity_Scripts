@@ -1,6 +1,9 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
+
 
 public class ThrowItem : MonoBehaviour
 {
@@ -9,6 +12,9 @@ public class ThrowItem : MonoBehaviour
     private float maxThrowForce = 50f;
     [SerializeField]
     private float minSwipeThreshold = 10f; // Minimum swipe distance to count as a throw
+    
+    private float maxSwipeDistance = 200f; // Maximum swipe distance to count for max force
+
 
     [Header("Drag Settings")]
     [SerializeField]
@@ -17,6 +23,7 @@ public class ThrowItem : MonoBehaviour
     private Vector2 startSwipePos;
     private Vector2 endSwipePos;
     private bool isDragging = false;
+    public static event Action OnBallThrown;
 
     private Rigidbody rb;
 
@@ -24,6 +31,7 @@ public class ThrowItem : MonoBehaviour
     {
         rb = GetComponent<Rigidbody>();
         rb.useGravity = false;
+        maxSwipeDistance = Screen.height * 0.65f;
     }
 
     private void Update()
@@ -38,41 +46,62 @@ public class ThrowItem : MonoBehaviour
 
     private void HandleInput()
     {
-        if (Input.GetMouseButtonDown(0))
+        // If the game is paused, don't process touch for throwing
+        if (Time.timeScale == 0 || !PauseManager.canThrow) // Tarkista canThrow-tila
+            return;
+
+        // Check if there are any touches
+        for (int i = 0; i < Input.touchCount; i++)
         {
-            startSwipePos = Input.mousePosition;
-            isDragging = true;
-            rb.useGravity = false;
-        }
-        else if (Input.GetMouseButtonUp(0))
-        {
-            endSwipePos = Input.mousePosition;
-            isDragging = false;
-            rb.useGravity = true;
-            if (Vector2.Distance(startSwipePos, endSwipePos) > minSwipeThreshold)
+            Touch touch = Input.GetTouch(i);
+
+            if (touch.phase == TouchPhase.Began)
             {
-                ThrowBall();
+                // Check if touch started on a UI element
+                if (EventSystem.current.IsPointerOverGameObject(touch.fingerId))
+                {
+                    return; // Ignore this touch
+                }
+
+                // Handle the touch for throwing
+                startSwipePos = touch.position;
+                isDragging = true;
+                rb.useGravity = false;
+            }
+            else if (touch.phase == TouchPhase.Ended)
+            {
+                endSwipePos = touch.position;
+                isDragging = false;
+                
+
+                if (Vector2.Distance(startSwipePos, endSwipePos) > minSwipeThreshold)
+                {
+                    rb.useGravity = true;
+                    ThrowBall();
+                    PauseManager.canThrow = false;
+                }
             }
         }
     }
+
 
     private void HandleDrag()
     {
         if (isDragging)
         {
             float distanceToCamera = Vector3.Distance(transform.position, Camera.main.transform.position);
-            Vector3 mousePosOnScreen = new Vector3(Input.mousePosition.x, Input.mousePosition.y, distanceToCamera);
-            Vector3 mousePosInWorld = Camera.main.ScreenToWorldPoint(mousePosOnScreen);
-            mousePosInWorld.z = transform.position.z;
+            Vector3 touchPosOnScreen = new Vector3(Input.GetTouch(0).position.x, Input.GetTouch(0).position.y, distanceToCamera);
+            Vector3 touchPosInWorld = Camera.main.ScreenToWorldPoint(touchPosOnScreen);
+            touchPosInWorld.z = transform.position.z;
 
-            // Check if the ball is close enough to the mouse position
-            if (Vector3.Distance(transform.position, mousePosInWorld) < 0.05f) // You can adjust the 0.1f threshold if needed
+            // Check if the ball is close enough to the touch position
+            if (Vector3.Distance(transform.position, touchPosInWorld) < 0.05f)
             {
-                rb.MovePosition(mousePosInWorld);
+                rb.MovePosition(touchPosInWorld);
             }
             else
             {
-                rb.MovePosition(Vector3.Lerp(transform.position, mousePosInWorld, Time.deltaTime * followSpeed));
+                rb.MovePosition(Vector3.Lerp(transform.position, touchPosInWorld, Time.deltaTime * followSpeed));
             }
         }
     }
@@ -82,7 +111,9 @@ public class ThrowItem : MonoBehaviour
     private void ThrowBall()
     {
         Vector2 swipeDir = endSwipePos - startSwipePos;
-        float throwForce = Mathf.Clamp(swipeDir.magnitude, 0, maxThrowForce);
+
+        float normalizedSwipeLength = Mathf.Clamp01(swipeDir.magnitude / maxSwipeDistance);
+        float throwForce = normalizedSwipeLength * maxThrowForce;
 
         // Convert 2D swipe direction into 3D force direction
         Vector3 forceDirection = new Vector3(swipeDir.x, swipeDir.y, 0).normalized;
@@ -92,6 +123,7 @@ public class ThrowItem : MonoBehaviour
         forceDirection.z = 1;  // Ensures forward motion along the z-axis.
 
         rb.AddForce(forceDirection * throwForce, ForceMode.Impulse);
+        OnBallThrown?.Invoke();
     }
 
 }
